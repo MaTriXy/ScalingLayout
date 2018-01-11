@@ -4,10 +4,15 @@ import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.PorterDuff;
+import android.graphics.PorterDuffXfermode;
 import android.graphics.RectF;
+import android.os.Build;
 import android.support.annotation.NonNull;
 import android.support.annotation.Nullable;
+import android.support.v4.view.ViewCompat;
 import android.util.AttributeSet;
 import android.view.ViewGroup;
 import android.widget.FrameLayout;
@@ -52,6 +57,7 @@ public class ScalingLayout extends FrameLayout {
      */
     private Path path;
     private RectF rectF;
+    private Paint maskPaint;
 
     /**
      * Animator to expand and collapse
@@ -63,6 +69,12 @@ public class ScalingLayout extends FrameLayout {
      * progress and collapse/expand
      */
     private ScalingLayoutListener scalingLayoutListener;
+
+    /**
+     * CustomOutline for elevation shadows
+     */
+    private ScalingLayoutOutlineProvider viewOutline;
+
 
     public ScalingLayout(@NonNull Context context) {
         super(context);
@@ -97,6 +109,11 @@ public class ScalingLayout extends FrameLayout {
         path = new Path();
         rectF = new RectF(0, 0, 0, 0);
 
+        maskPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        maskPaint.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.DST_IN));
+
+        setLayerType(LAYER_TYPE_HARDWARE, null);
+
         valueAnimator = ValueAnimator.ofFloat(0, 0);
         valueAnimator.setDuration(200);
         valueAnimator.addUpdateListener(new ValueAnimator.AnimatorUpdateListener() {
@@ -128,20 +145,23 @@ public class ScalingLayout extends FrameLayout {
             settings.initialize(w, h);
             currentWidth = w;
             currentRadius = settings.getMaxRadius();
+            viewOutline = new ScalingLayoutOutlineProvider(w, h, currentRadius);
         }
 
         rectF.set(0, 0, w, h);
+        updateViewOutline(h, currentWidth, currentRadius);
         invalidate();
     }
 
     @Override
     protected void dispatchDraw(Canvas canvas) {
         int save = canvas.save();
-        path.reset();
-        path.addRoundRect(rectF, currentRadius, currentRadius, Path.Direction.CCW);
-        canvas.clipPath(path);
         super.dispatchDraw(canvas);
         canvas.restoreToCount(save);
+
+        path.reset();
+        path.addRoundRect(rectF, currentRadius, currentRadius, Path.Direction.CCW);
+        canvas.drawPath(path, maskPaint);
     }
 
     /**
@@ -194,6 +214,26 @@ public class ScalingLayout extends FrameLayout {
 
     public void setListener(ScalingLayoutListener scalingLayoutListener) {
         this.scalingLayoutListener = scalingLayoutListener;
+    }
+
+    /**
+     * Updates view outline borders and radius
+     *
+     * @param height
+     * @param width
+     * @param radius
+     */
+    private void updateViewOutline(int height, int width, float radius) {
+        viewOutline.setHeight(height);
+        viewOutline.setWidth(width);
+        viewOutline.setRadius(radius);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && ViewCompat.getElevation(this) > 0f) {
+            try {
+                setOutlineProvider(viewOutline);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
     }
 
     /**
@@ -280,7 +320,7 @@ public class ScalingLayout extends FrameLayout {
     /**
      * Notify observers about change
      */
-    private void notifyListener(){
+    private void notifyListener() {
         if (scalingLayoutListener != null) {
             if (state == State.COLLAPSED) {
                 scalingLayoutListener.onCollapsed();
